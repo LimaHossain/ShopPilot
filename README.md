@@ -2,7 +2,7 @@ ShopPilot — AI-Powered IT Shop Assistant
 
 ShopPilot is an AI-powered digital assistant designed for physical IT product shops that sell laptops, desktop PCs, and accessories. The goal is to help businesses automate product inquiries, support customers, and improve digital marketing through an intelligent chatbot and AI agent.
 
-🎯 Project Goals
+*** Project Goals
 
 Provide an AI-powered chatbot for customer inquiries.
 
@@ -14,7 +14,7 @@ Automate digital marketing tasks and promotional content generation.
 
 Build a foundation for future business workflow automation.
 
-🚀 Planned Features
+*** Planned Features
 
 Initial project setup
 
@@ -34,7 +34,7 @@ Add inventory-aware responses
 
 Integrate business workflows
 
-🛠️ Technology Stack
+*** Technology Stack
 
 Planned and current technologies may change during development.
 
