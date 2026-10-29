@@ -7,6 +7,38 @@ from pydantic import BaseModel, Field
 import re
 from fastapi.middleware.cors import CORSMiddleware
 
+import os
+from dotenv import load_dotenv
+from openai import OpenAI
+
+BASE_DIR = Path(__file__).resolve().parent
+ENV_FILE = BASE_DIR / ".env"
+
+load_dotenv(dotenv_path=ENV_FILE, override=True)
+
+HF_TOKEN = os.getenv("HF_TOKEN")
+HF_MODEL = os.getenv(
+    "HF_MODEL",
+    "openai/gpt-oss-120b:fastest",
+)
+
+
+ai_client = None
+
+if HF_TOKEN and HF_TOKEN.strip():
+    ai_client = OpenAI(
+        base_url="https://router.huggingface.co/v1",
+        api_key=HF_TOKEN.strip(),
+    )
+
+print("ShopPilot configuration:")
+print("App directory:", BASE_DIR)
+print(".env file exists:", ENV_FILE.is_file())
+print("HF_TOKEN loaded:", bool(HF_TOKEN and HF_TOKEN.strip()))
+print("HF_MODEL:", HF_MODEL)
+print("AI client initialized:", ai_client is not None)
+
+
 app = FastAPI(
     title="ShopPilot API",
     description="Product catalog and search API for a local IT shop",
@@ -22,7 +54,6 @@ app.add_middleware(
 )
 
 
-# Always locate products.csv beside this file
 CSV_FILE = Path(__file__).parent / "products.csv"
 
 
@@ -319,114 +350,164 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=500)
 
 
+
 @app.post("/chat")
 def chat(request: ChatRequest):
     message = request.message.strip()
-    text = message.lower()
 
-    # Extract a budget from phrases such as:
-    # "under 5000", "below ৳3,000", "less than 2000"
-    budget_match = re.search(
-        r"(?:under|below|within|less than|max(?:imum)?(?: budget)?)"
-        r"\s*(?:৳|tk\.?\s*)?([\d,]+)",
-        text,
-    )
-
-    budget = None
-    if budget_match:
-        budget = float(budget_match.group(1).replace(",", ""))
-
-    # Identify common product-related keywords
-    stop_words = {
-        "i", "me", "my", "a", "an", "the", "to", "for", "of",
-        "with", "and", "or", "please", "want", "need", "find",
-        "show", "recommend", "recommendation", "looking", "buy",
-        "get", "some", "good", "best", "price", "product",
-        "products", "under", "below", "within", "less", "than",
-        "maximum", "max", "budget", "tk", "taka", "bdt",
-    }
-
-    # Remove budget phrases before searching for product keywords
-    search_text = re.sub(
-        r"(?:under|below|within|less than|max(?:imum)?(?: budget)?)"
-        r"\s*(?:৳|tk\.?\s*)?[\d,]+",
-        " ",
-        text,
-    )
-    search_text = re.sub(r"[৳,]", " ", search_text)
-
-    keywords = [
-        word for word in re.findall(r"[a-zA-Z0-9]+", search_text)
-        if word not in stop_words and not word.isdigit()
-    ]
-
-    # Search the catalog and rank matches
-    matches = []
+    # Keep the product catalog as the source of product facts.
+    # Limit context size to keep requests small.
+    catalog_context = []
 
     for product in PRODUCTS:
-        if budget is not None:
-            if product.price_bdt is None or product.price_bdt > budget:
-                continue
+        catalog_context.append({
+            "product_id": product.product_id,
+            "name": product.name,
+            "brand": product.brand,
+            "category": product.category,
+            "price_bdt": product.price_bdt,
+            "price_basis": product.price_basis,
+            "specifications": product.specifications,
+            "description": product.description,
+        })
 
+    # First use the existing search to find relevant products.
+    words = [
+        word.lower()
+        for word in re.findall(r"[a-zA-Z0-9]+", message)
+        if len(word) > 1
+    ]
+
+    ranked = []
+
+    for product in PRODUCTS:
         searchable = " ".join([
             product.name,
-            product.category,
             product.brand,
+            product.category,
             product.specifications,
             product.description,
         ]).lower()
 
-        matched = [word for word in keywords if word in searchable]
+        score = sum(1 for word in words if word in searchable)
 
-        if matched:
-            matches.append({
-                "product": product,
-                "score": len(matched),
-                "matched": matched,
-            })
+        if score:
+            ranked.append((score, product))
 
-    matches.sort(
+    ranked.sort(
         key=lambda item: (
-            -item["score"],
-            item["product"].price_bdt
-            if item["product"].price_bdt is not None
+            -item[0],
+            item[1].price_bdt
+            if item[1].price_bdt is not None
             else float("inf"),
         )
     )
 
-    top_matches = matches[:5]
+    relevant_products = [product for _, product in ranked[:8]]
 
-    if top_matches:
-        response_text = (
-            f"I found {len(matches)} matching product(s) for your request. "
-            "Here are the best keyword matches."
-        )
-        if budget is not None:
-            response_text += f" I filtered for listed prices up to ৳{budget:,.0f}."
-    elif budget is not None:
-        response_text = (
-            f"I couldn't find matching products within ৳{budget:,.0f}. "
-            "Try a different product name or a higher budget."
-        )
-    else:
-        response_text = (
-            "I couldn't find a clear product match. Try asking for a "
-            "keyboard, headset, mouse, or a brand such as Onikuma "
-            "or Royal Kludge."
+    # If search doesn't identify products, provide a small catalog sample.
+    if not relevant_products:
+        relevant_products = PRODUCTS[:5]
+
+    context = [
+        {
+            "product_id": p.product_id,
+            "name": p.name,
+            "brand": p.brand,
+            "category": p.category,
+            "price_bdt": p.price_bdt,
+            "price_basis": p.price_basis,
+            "specifications": p.specifications,
+            "description": p.description,
+        }
+        for p in relevant_products
+    ]
+
+    # Keep the chatbot useful if no API token is configured.
+    if ai_client is None:
+        return {
+            "reply": (
+                "The AI model is not configured yet. "
+                "Please check the HF_TOKEN setting in your .env file."
+            ),
+            "products": [
+                {
+                    **p.model_dump(),
+                    "match_reason": "Matched your search keywords",
+                }
+                for p in relevant_products[:5]
+            ],
+        }
+
+    system_prompt = """
+You are ShopPilot, a helpful shopping assistant for an IT products shop.
+
+Rules:
+- Answer the customer's question clearly and politely.
+- Use only the supplied catalog context for product facts.
+- Never invent prices, specifications, product availability, or discounts.
+- Treat price_bdt as a listed price, not a guaranteed current selling price.
+- If stock is unknown, say the shop must confirm availability.
+- Recommend products from the supplied context when relevant.
+- If the context does not contain enough information, say so.
+- Do not claim you have placed an order or contacted the shop.
+- The customer may write in English or Bangla. Respond in the language
+  that best matches their message.
+"""
+
+    try:
+        completion = ai_client.chat.completions.create(
+            model=HF_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Catalog context:\n{context}\n\n"
+                        f"Customer message:\n{message}"
+                    ),
+                },
+            ],
+            max_tokens=350,
         )
 
-    return {
-        "reply": response_text,
-        "products": [
-            {
-                **item["product"].model_dump(),
-                "match_reason": (
-                    "Matched keywords: " + ", ".join(item["matched"])
-                ),
-            }
-            for item in top_matches
-        ],
-    }
+        answer = completion.choices[0].message.content
+
+        if not answer:
+            answer = (
+                "I couldn't generate a response just now. "
+                "Please try asking another way."
+            )
+
+        return {
+            "reply": answer,
+            "products": [
+                {
+                    **p.model_dump(),
+                    "match_reason": "Selected as relevant catalog context",
+                }
+                for p in relevant_products[:5]
+            ],
+        }
+
+    except Exception as exc:
+        # Log details in the backend terminal, not in the customer response.
+        print(f"Hosted AI request failed: {type(exc).__name__}: {exc}")
+
+        return {
+            "reply": (
+                "I'm having trouble reaching the AI service right now. "
+                "Please try again shortly. You can still browse the "
+                "product catalog."
+            ),
+            "products": [
+                {
+                    **p.model_dump(),
+                    "match_reason": "Catalog fallback result",
+                }
+                for p in relevant_products[:5]
+            ],
+        }
 
 @app.get("/products/{product_id}")
 def get_product(product_id: str):

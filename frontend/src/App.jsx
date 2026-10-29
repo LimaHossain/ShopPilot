@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import "./App.css";
 
@@ -16,16 +15,24 @@ function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function sendMessage(event) {
-    event.preventDefault();
+  async function sendMessage(eventOrMessage) {
+    // Supports both form submissions and product-card questions.
+    if (typeof eventOrMessage !== "string") {
+      eventOrMessage?.preventDefault();
+    }
 
-    const message = input.trim();
+    const message =
+      typeof eventOrMessage === "string"
+        ? eventOrMessage.trim()
+        : input.trim();
+
     if (!message || loading) return;
 
     setMessages((previous) => [
       ...previous,
       { role: "user", text: message, products: [] },
     ]);
+
     setInput("");
     setLoading(true);
 
@@ -48,11 +55,13 @@ function App() {
         ...previous,
         {
           role: "bot",
-          text: data.reply,
+          text: data.reply || "I couldn't generate a response.",
           products: data.products || [],
         },
       ]);
     } catch (error) {
+      console.error("Chat request failed:", error);
+
       setMessages((previous) => [
         ...previous,
         {
@@ -61,10 +70,15 @@ function App() {
           products: [],
         },
       ]);
-      console.error("Chat request failed:", error);
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleAskProduct(product) {
+    const question = `Tell me more about ${product.name} (Product ID: ${product.product_id}). Explain its specifications and listed price, and tell me what I should confirm with the shop.`;
+
+    sendMessage(question);
   }
 
   return (
@@ -72,10 +86,12 @@ function App() {
       <section className="chat-app">
         <header className="chat-header">
           <div className="brand-icon">S</div>
+
           <div>
             <h1>ShopPilot</h1>
             <p>IT Shopping Assistant</p>
           </div>
+
           <span className="status">
             <span className="status-dot" />
             Online
@@ -102,6 +118,7 @@ function App() {
                           <span className="product-brand">
                             {product.brand || "IT Product"}
                           </span>
+
                           <span className="product-category">
                             {product.category}
                           </span>
@@ -123,16 +140,30 @@ function App() {
                                 ).toLocaleString("en-BD")}`
                               : "Price unavailable"}
                           </strong>
+
                           <span className="price-note">
-                            {product.price_basis || "Price to confirm"}
+                            {product.price_basis ||
+                              "Price to confirm"}
                           </span>
                         </div>
 
-                        <p className="match-reason">
-                          {product.match_reason}
-                        </p>
+                        {product.match_reason && (
+                          <p className="match-reason">
+                            {product.match_reason}
+                          </p>
+                        )}
+
+                        <button
+                          type="button"
+                          className="product-details-button"
+                          disabled={loading}
+                          onClick={() => handleAskProduct(product)}
+                        >
+                          Ask about this product
+                        </button>
                       </article>
                     ))}
+
                     <p className="disclaimer">
                       Prices and stock should be confirmed with the shop.
                     </p>
@@ -160,6 +191,7 @@ function App() {
             maxLength={500}
             disabled={loading}
           />
+
           <button
             type="submit"
             disabled={loading || !input.trim()}

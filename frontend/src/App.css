@@ -241,6 +241,29 @@ input {
   cursor: not-allowed;
 }
 
+.product-details-button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #2563eb;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.product-details-button:hover {
+  background: #1d4ed8;
+}
+
+.product-details-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .chat-footer {
   padding: 0 16px 14px;
   color: #94a3b8;
