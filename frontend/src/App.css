@@ -1,4 +1,3 @@
-
 * {
   box-sizing: border-box;
 }
@@ -131,75 +130,17 @@ input {
   font-style: italic;
 }
 
+/* Product cards are styled in ProductCard.css */
 .product-list {
   display: grid;
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  width: 100%;
   margin-top: 12px;
 }
 
-.product-card {
-  padding: 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  background: #fff;
-}
-
-.product-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.product-brand {
-  font-size: 12px;
-  font-weight: 700;
-  color: #475569;
-}
-
-.product-category {
-  color: #64748b;
-  font-size: 12px;
-}
-
-.product-card h3 {
-  margin: 10px 0 8px;
-  font-size: 16px;
-}
-
-.product-description {
-  margin: 0;
-  color: #64748b;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.product-bottom {
-  margin-top: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.product-bottom strong {
-  font-size: 18px;
-  color: #172033;
-}
-
-.price-note {
-  color: #64748b;
-  font-size: 11px;
-}
-
-.match-reason {
-  margin: 10px 0 0;
-  color: #64748b;
-  font-size: 12px;
-}
-
 .disclaimer {
+  grid-column: 1 / -1;
   margin: 0;
   color: #64748b;
   font-size: 12px;
@@ -241,34 +182,31 @@ input {
   cursor: not-allowed;
 }
 
-.product-details-button {
-  width: 100%;
-  margin-top: 12px;
-  padding: 10px 14px;
-  border: none;
-  border-radius: 8px;
-  background: #2563eb;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.product-details-button:hover {
-  background: #1d4ed8;
-}
-
-.product-details-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .chat-footer {
   padding: 0 16px 14px;
   color: #94a3b8;
   font-size: 11px;
   text-align: center;
+}
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.suggestions button {
+  padding: 8px 12px;
+  color: #263b67;
+  background: #fff;
+  border: 1px solid #dbe3ed;
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.suggestions button:hover {
+  background: #f1f5f9;
 }
 
 @media (max-width: 600px) {
@@ -292,5 +230,9 @@ input {
 
   .chat-form {
     padding: 12px;
+  }
+
+  .product-list {
+    grid-template-columns: 1fr;
   }
 }

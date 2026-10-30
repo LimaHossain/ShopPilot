@@ -14,7 +14,7 @@ function formatPrice(price) {
   return `৳${numericPrice.toLocaleString("en-BD")}`;
 }
 
-function ProductCard({ product, onAskProduct }) {
+function ProductCard({ product, onAskProduct, disabled }) {
   const name = product.name || "Unnamed product";
   const brand = product.brand || "Brand not specified";
   const category = product.category || "General";
@@ -102,9 +102,10 @@ function ProductCard({ product, onAskProduct }) {
         )}
 
         <button
-          type="button"
-          className="product-card__button"
-          onClick={() => onAskProduct?.(product)}
+        type="button"
+        className="product-card__button"
+        disabled={disabled}
+        onClick={() => onAskProduct?.(product)}
         >
           Ask about this product
           <span aria-hidden="true"> →</span>

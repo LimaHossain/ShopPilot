@@ -142,6 +142,139 @@ def load_products() -> list[Product]:
 PRODUCTS = load_products()
 
 
+# ---------------------------------------------------------------------------
+# Bangla / English understanding helpers used by /chat
+# ---------------------------------------------------------------------------
+
+BENGALI_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
+
+# Each concept lists words a customer might type (English and Bangla).
+# The English (ASCII) words are also used to match the product's
+# category and name in your catalog. Add more words for your own catalog.
+CATEGORY_TERMS = {
+    "headset": [
+        "headset", "headphone", "earphone", "earbud",
+        "হেডসেট", "হেডফোন", "হেড ফোন", "ইয়ারফোন", "ইয়ারবাড",
+    ],
+    "keyboard": [
+        "keyboard",
+        "কীবোর্ড", "কিবোর্ড", "কি-বোর্ড", "কি বোর্ড",
+    ],
+    "mouse": ["mouse", "mice", "মাউস"],
+    "laptop": ["laptop", "notebook", "ল্যাপটপ"],
+    "monitor": ["monitor", "মনিটর"],
+    "router": ["router", "রাউটার"],
+    "webcam": ["webcam", "ওয়েবক্যাম", "ওয়েব ক্যাম"],
+    "speaker": ["speaker", "স্পিকার"],
+    "printer": ["printer", "প্রিন্টার"],
+    "charger": ["charger", "চার্জার"],
+    "pendrive": ["pendrive", "pen drive", "পেনড্রাইভ", "পেন ড্রাইভ"],
+}
+
+STOP_WORDS = {
+    "the", "and", "for", "with", "best", "good", "great", "nice",
+    "budget", "suggest", "recommend", "please", "need", "want",
+    "under", "within", "below", "tk", "taka", "bdt", "me", "my",
+    "can", "you", "any", "some", "buy", "show",
+}
+
+
+def parse_budget(message: str) -> float | None:
+    """Find a budget like 3000, ৩০০০, 3,000, 3k or ৩ হাজার."""
+    text = message.translate(BENGALI_DIGITS).replace(",", "").lower()
+
+    thousands = re.search(
+        r"(\d+(?:\.\d+)?)\s*(?:k\b|thousand|হাজার)", text
+    )
+    if thousands:
+        return float(thousands.group(1)) * 1000
+
+    for number in re.findall(r"\d+(?:\.\d+)?", text):
+        value = float(number)
+        if value >= 100:
+            return value
+
+    return None
+
+
+def detect_categories(message: str) -> list[str]:
+    """Return product types the customer asked for (English or Bangla)."""
+    text = message.lower()
+    found = []
+
+    for concept, terms in CATEGORY_TERMS.items():
+        for term in terms:
+            if term.isascii():
+                hit = re.search(rf"\b{re.escape(term)}", text)
+            else:
+                hit = term in text
+
+            if hit:
+                found.append(concept)
+                break
+
+    return found
+
+
+def product_in_category(product: Product, concept: str) -> bool:
+    terms = [t for t in CATEGORY_TERMS[concept] if t.isascii()]
+    text = f"{product.category} {product.name}".lower()
+    return any(term in text for term in terms)
+
+
+def detect_brands(message: str) -> list[str]:
+    """Return catalog brands mentioned in the message (English names)."""
+    text = message.lower()
+    brands = {p.brand.lower() for p in PRODUCTS if p.brand}
+
+    return [
+        brand for brand in brands
+        if re.search(rf"\b{re.escape(brand)}\b", text)
+    ]
+
+
+def build_fallback_reply(
+    message: str, products: list[Product], budget: float | None
+) -> str:
+    """Plain reply used when the AI service is unavailable."""
+    is_bangla = bool(re.search(r"[\u0980-\u09FF]", message))
+
+    if not products:
+        return (
+            "দুঃখিত, আপনার অনুরোধ অনুযায়ী কোনো পণ্য খুঁজে পাইনি। অন্যভাবে লিখে চেষ্টা করুন।"
+            if is_bangla
+            else "Sorry, I couldn't find matching products. Please try rephrasing."
+        )
+
+    in_budget = budget is not None and any(
+        p.price_bdt is not None and p.price_bdt <= budget
+        for p in products
+    )
+
+    if is_bangla:
+        text = "আপনার জন্য কিছু পণ্য নিচে দেওয়া হলো।"
+
+        if budget is not None:
+            text += (
+                f" এগুলো ৳{budget:,.0f} বাজেটের মধ্যে।"
+                if in_budget
+                else f" ৳{budget:,.0f} বাজেটের মধ্যে কোনো পণ্য পাইনি, তাই কাছাকাছি পণ্য দেখানো হলো।"
+            )
+
+        return text + " দাম ও স্টক কেনার আগে দোকান থেকে নিশ্চিত করে নিন।"
+
+    text = "Here are some products that match your request."
+
+    if budget is not None:
+        text += (
+            f" These are within your budget of BDT {budget:,.0f}."
+            if in_budget
+            else f" Nothing matched BDT {budget:,.0f} exactly, so these are the closest options."
+        )
+
+    return text + " Please confirm prices and stock with the shop before buying."
+
+
 @app.get("/")
 def home():
     return {
@@ -350,37 +483,78 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=500)
 
 
-
 @app.post("/chat")
 def chat(request: ChatRequest):
     message = request.message.strip()
 
-    # Keep the product catalog as the source of product facts.
-    # Limit context size to keep requests small.
-    catalog_context = []
+    # 1. Understand the request (works for English and Bangla).
+    budget = parse_budget(message)
+    categories = detect_categories(message)
+    brands = detect_brands(message)
 
-    for product in PRODUCTS:
-        catalog_context.append({
-            "product_id": product.product_id,
-            "name": product.name,
-            "brand": product.brand,
-            "category": product.category,
-            "price_bdt": product.price_bdt,
-            "price_basis": product.price_basis,
-            "specifications": product.specifications,
-            "description": product.description,
-        })
-
-    # First use the existing search to find relevant products.
+    # English words only; numbers and filler words are ignored.
     words = [
         word.lower()
-        for word in re.findall(r"[a-zA-Z0-9]+", message)
+        for word in re.findall(
+            r"[a-zA-Z0-9]+", message.translate(BENGALI_DIGITS)
+        )
         if len(word) > 1
+        and not word.isdigit()
+        and word.lower() not in STOP_WORDS
     ]
 
-    ranked = []
+    # 2. Narrow the catalog by product type, then by budget.
+    pool = PRODUCTS
 
-    for product in PRODUCTS:
+    if categories:
+        pool = [
+            p for p in PRODUCTS
+            if any(product_in_category(p, c) for c in categories)
+        ]
+
+    brand_note = ""
+    brand_matched = False
+
+    if brands:
+        brand_pool = [p for p in pool if p.brand.lower() in brands]
+
+        if brand_pool:
+            pool = brand_pool
+            brand_matched = True
+        else:
+            brand_note = (
+                "No matching product from the requested brand "
+                "was found; other brands are shown."
+            )
+
+    # A detected type or brand means we trust the filter, so keep
+    # everything that passed it instead of requiring keyword matches.
+    has_filter = bool(categories or brand_matched)
+
+    budget_note = ""
+
+    if budget is not None and pool:
+        within_budget = [
+            p for p in pool
+            if p.price_bdt is not None and p.price_bdt <= budget
+        ]
+
+        if within_budget:
+            pool = within_budget
+            budget_note = (
+                f"Only products with a listed price up to "
+                f"BDT {budget:,.0f} are included."
+            )
+        else:
+            budget_note = (
+                f"No matching product has a listed price within "
+                f"BDT {budget:,.0f}. The closest options are shown."
+            )
+
+    # 3. Rank what is left.
+    scored = []
+
+    for product in pool:
         searchable = " ".join([
             product.name,
             product.brand,
@@ -390,11 +564,13 @@ def chat(request: ChatRequest):
         ]).lower()
 
         score = sum(1 for word in words if word in searchable)
+        scored.append((score, product))
 
-        if score:
-            ranked.append((score, product))
+    # With no type or brand detected, require at least one keyword match.
+    if not has_filter:
+        scored = [(s, p) for s, p in scored if s > 0]
 
-    ranked.sort(
+    scored.sort(
         key=lambda item: (
             -item[0],
             item[1].price_bdt
@@ -403,11 +579,45 @@ def chat(request: ChatRequest):
         )
     )
 
-    relevant_products = [product for _, product in ranked[:8]]
+    relevant_products = [product for _, product in scored[:8]]
 
-    # If search doesn't identify products, provide a small catalog sample.
-    if not relevant_products:
-        relevant_products = PRODUCTS[:5]
+    # Only fall back to a sample when we couldn't tell what was asked.
+    if not relevant_products and not has_filter:
+        relevant_products = pool[:5]
+
+    category_note = ""
+
+    if categories and not relevant_products:
+        category_note = (
+            "The catalog has no products matching: "
+            + ", ".join(categories)
+            + "."
+        )
+
+    def match_reason(product: Product) -> str:
+        parts = []
+
+        if categories:
+            parts.append("Matches the product type you asked for")
+        elif brand_matched:
+            parts.append("Matches the brand you asked for")
+        else:
+            parts.append("Matches your search keywords")
+
+        if (
+            budget is not None
+            and product.price_bdt is not None
+            and product.price_bdt <= budget
+        ):
+            parts.append("listed price is within your budget")
+
+        return "; ".join(parts)
+
+    def product_cards(products: list[Product]) -> list[dict]:
+        return [
+            {**p.model_dump(), "match_reason": match_reason(p)}
+            for p in products[:5]
+        ]
 
     context = [
         {
@@ -430,13 +640,7 @@ def chat(request: ChatRequest):
                 "The AI model is not configured yet. "
                 "Please check the HF_TOKEN setting in your .env file."
             ),
-            "products": [
-                {
-                    **p.model_dump(),
-                    "match_reason": "Matched your search keywords",
-                }
-                for p in relevant_products[:5]
-            ],
+            "products": product_cards(relevant_products),
         }
 
     system_prompt = """
@@ -449,11 +653,15 @@ Rules:
 - Treat price_bdt as a listed price, not a guaranteed current selling price.
 - If stock is unknown, say the shop must confirm availability.
 - Recommend products from the supplied context when relevant.
-- If the context does not contain enough information, say so.
+- If the context is empty or does not contain enough information, say so.
 - Do not claim you have placed an order or contacted the shop.
 - The customer may write in English or Bangla. Respond in the language
   that best matches their message.
 """
+
+    notes = " ".join(
+        n for n in [budget_note, category_note, brand_note] if n
+    )
 
     try:
         completion = ai_client.chat.completions.create(
@@ -464,11 +672,14 @@ Rules:
                     "role": "user",
                     "content": (
                         f"Catalog context:\n{context}\n\n"
+                        f"Search notes: {notes or 'None'}\n\n"
                         f"Customer message:\n{message}"
                     ),
                 },
             ],
-            max_tokens=350,
+            # Reasoning models spend part of this on thinking,
+            # so a small limit can leave the visible answer empty.
+            max_tokens=800,
         )
 
         answer = completion.choices[0].message.content
@@ -481,13 +692,7 @@ Rules:
 
         return {
             "reply": answer,
-            "products": [
-                {
-                    **p.model_dump(),
-                    "match_reason": "Selected as relevant catalog context",
-                }
-                for p in relevant_products[:5]
-            ],
+            "products": product_cards(relevant_products),
         }
 
     except Exception as exc:
@@ -495,19 +700,12 @@ Rules:
         print(f"Hosted AI request failed: {type(exc).__name__}: {exc}")
 
         return {
-            "reply": (
-                "I'm having trouble reaching the AI service right now. "
-                "Please try again shortly. You can still browse the "
-                "product catalog."
+            "reply": build_fallback_reply(
+                message, relevant_products, budget
             ),
-            "products": [
-                {
-                    **p.model_dump(),
-                    "match_reason": "Catalog fallback result",
-                }
-                for p in relevant_products[:5]
-            ],
+            "products": product_cards(relevant_products),
         }
+
 
 @app.get("/products/{product_id}")
 def get_product(product_id: str):

@@ -1,7 +1,14 @@
-import { useState } from "react";
+import ProductCard from "./ProductCard";
+import { useState, useEffect, useRef } from "react";
 import "./App.css";
 
 const API_URL = "http://127.0.0.1:8000";
+
+const SUGGESTIONS = [
+  "Best headset under 3000 taka",
+  "আমার বাজেট ৫০০০ টাকা, একটি মাউস দিন",
+  "Gaming keyboard suggestions",
+];
 
 function App() {
   const [messages, setMessages] = useState([
@@ -14,9 +21,15 @@ function App() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
+
+  // Scroll to the newest message whenever the chat changes.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
   async function sendMessage(eventOrMessage) {
-    // Supports both form submissions and product-card questions.
+    // Supports form submissions, suggestion chips and product-card questions.
     if (typeof eventOrMessage !== "string") {
       eventOrMessage?.preventDefault();
     }
@@ -107,61 +120,15 @@ function App() {
               <div className="message-content">
                 <div className="bubble">{message.text}</div>
 
-                {message.products.length > 0 && (
+                {message.products && message.products.length > 0 && (
                   <div className="product-list">
                     {message.products.map((product) => (
-                      <article
-                        className="product-card"
+                      <ProductCard
                         key={product.product_id}
-                      >
-                        <div className="product-top">
-                          <span className="product-brand">
-                            {product.brand || "IT Product"}
-                          </span>
-
-                          <span className="product-category">
-                            {product.category}
-                          </span>
-                        </div>
-
-                        <h3>{product.name}</h3>
-
-                        <p className="product-description">
-                          {product.specifications ||
-                            product.description ||
-                            "Product details are not available."}
-                        </p>
-
-                        <div className="product-bottom">
-                          <strong>
-                            {product.price_bdt != null
-                              ? `৳${Number(
-                                  product.price_bdt
-                                ).toLocaleString("en-BD")}`
-                              : "Price unavailable"}
-                          </strong>
-
-                          <span className="price-note">
-                            {product.price_basis ||
-                              "Price to confirm"}
-                          </span>
-                        </div>
-
-                        {product.match_reason && (
-                          <p className="match-reason">
-                            {product.match_reason}
-                          </p>
-                        )}
-
-                        <button
-                          type="button"
-                          className="product-details-button"
-                          disabled={loading}
-                          onClick={() => handleAskProduct(product)}
-                        >
-                          Ask about this product
-                        </button>
-                      </article>
+                        product={product}
+                        onAskProduct={handleAskProduct}
+                        disabled={loading}
+                      />
                     ))}
 
                     <p className="disclaimer">
@@ -173,6 +140,21 @@ function App() {
             </div>
           ))}
 
+          {messages.length === 1 && (
+            <div className="suggestions">
+              {SUGGESTIONS.map((text) => (
+                <button
+                  key={text}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => sendMessage(text)}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          )}
+
           {loading && (
             <div className="message-row bot">
               <div className="bubble typing">
@@ -180,6 +162,8 @@ function App() {
               </div>
             </div>
           )}
+
+          <div ref={bottomRef} />
         </div>
 
         <form className="chat-form" onSubmit={sendMessage}>

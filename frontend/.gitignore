@@ -30,3 +30,39 @@ __pycache__/
 *.pyc
 frontend/node_modules/
 frontend/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Frontend
+node_modules/
+dist/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Keep the example configuration if you create one
+!.env.example
+
+# Frontend dependencies
+node_modules/
+frontend/node_modules/
+
+# Build files
+frontend/dist/

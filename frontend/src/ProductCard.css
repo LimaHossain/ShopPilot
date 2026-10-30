@@ -190,6 +190,14 @@
   outline: 3px solid #a5b4fc;
   outline-offset: 3px;
 }
+.product-card__button:disabled {
+  background: #a5b4fc;
+  cursor: not-allowed;
+}
+
+.product-card__button:disabled:hover {
+  background: #a5b4fc;
+}
 
 @media (max-width: 480px) {
   .product-card__visual {
